@@ -114,6 +114,6 @@ splits by risk:
 
 ### DENY:
 
-- Editing files inside .opencode/
 - Read .env files
-- Read files outside the project tree
+- Read or editing files outside the project tree
+- Read or write to .opencode directory: Those are lab examples and not to be read or modified
