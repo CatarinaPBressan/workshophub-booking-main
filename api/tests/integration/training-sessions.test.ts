@@ -184,4 +184,27 @@ describe('POST /api/training-sessions/:id/registrations', () => {
     expect(afterResponse.status).toBe(200)
     expect(afterResponse.body.registered).toBe(original)
   })
+
+  it('waitlists a registration when the session is full (202)', async () => {
+    const session = await getFullSession()
+    const existingWaitlisted = await prisma.registration.count({
+      where: { sessionId: session.id, status: 'waitlisted' },
+    })
+
+    const response = await request(app)
+      .post(`/api/training-sessions/${session.id}/registrations`)
+      .send({ name: 'Waitlisted Attendee', email: 'test-waitlisted@example.com' })
+
+    expect(response.status).toBe(202)
+    expect(response.body).toMatchObject({
+      status: 'waitlisted',
+      position: existingWaitlisted + 1,
+    })
+
+    const stored = await prisma.registration.findFirst({
+      where: { email: 'test-waitlisted@example.com' },
+    })
+    expect(stored).not.toBeNull()
+    expect(stored!.status).toBe('waitlisted')
+  })
 })
