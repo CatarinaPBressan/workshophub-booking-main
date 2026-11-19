@@ -15,6 +15,7 @@ jest.mock('../../src/lib/prisma', () => ({
     },
     registration: {
       create: jest.fn(),
+      count: jest.fn(),
     },
     $transaction: jest.fn(),
   },
@@ -24,6 +25,7 @@ const mockFindMany = prisma.trainingSession.findMany as jest.Mock
 const mockFindUnique = prisma.trainingSession.findUnique as jest.Mock
 const mockUpdateMany = prisma.trainingSession.updateMany as jest.Mock
 const mockRegistrationCreate = prisma.registration.create as jest.Mock
+const mockRegistrationCount = prisma.registration.count as jest.Mock
 const mockTransaction = prisma.$transaction as jest.Mock
 
 const mockSession = {
@@ -43,7 +45,7 @@ const mockRegistration = {
   sessionId: 1,
   name: 'Test Attendee',
   email: 'test@example.com',
-  status: 'registered',
+  status: 'confirmed',
   createdAt: new Date().toISOString(),
 }
 
@@ -111,9 +113,35 @@ describe('createRegistration', () => {
 
     const result = await createRegistration(1, 'Test Attendee', 'test@example.com')
 
-    expect(result).toEqual(mockRegistration)
+    expect(result).toEqual({ kind: 'confirmed', registration: mockRegistration })
     expect(mockFindUnique).toHaveBeenCalledWith({ where: { id: 1 } })
     expect(mockTransaction).toHaveBeenCalled()
+  })
+
+  it('waitlists a registration when the session is full', async () => {
+    const fullSession = { ...mockSession, registered: 20 }
+    mockFindUnique.mockResolvedValue(fullSession)
+    mockRegistrationCount.mockResolvedValue(0)
+    mockRegistrationCreate.mockResolvedValue(mockRegistration)
+    mockTransaction.mockImplementation((fn) =>
+      fn({
+        registration: {
+          count: mockRegistrationCount,
+          create: mockRegistrationCreate,
+        },
+      })
+    )
+
+    const result = await createRegistration(1, 'Test Attendee', 'test@example.com')
+
+    expect(result).toEqual({
+      kind: 'waitlisted',
+      registration: mockRegistration,
+      position: 1,
+    })
+    expect(mockRegistrationCount).toHaveBeenCalledWith({
+      where: { sessionId: 1, status: 'waitlisted' },
+    })
   })
 
   it('throws 400 error when name is empty', async () => {
@@ -158,16 +186,25 @@ describe('createRegistration', () => {
     }
   })
 
-  it('throws 409 error when session is full', async () => {
-    mockFindUnique.mockResolvedValue(mockSession)
-    mockUpdateMany.mockResolvedValue({ count: 0 })
+  it('waitlists instead of throwing 409 when session is full', async () => {
+    const fullSession = { ...mockSession, registered: 20 }
+    mockFindUnique.mockResolvedValue(fullSession)
+    mockRegistrationCount.mockResolvedValue(0)
+    mockRegistrationCreate.mockResolvedValue(mockRegistration)
+    mockTransaction.mockImplementation((fn) =>
+      fn({
+        registration: {
+          count: mockRegistrationCount,
+          create: mockRegistrationCreate,
+        },
+      })
+    )
 
-    try {
-      await createRegistration(1, 'Test Attendee', 'test@example.com')
-    } catch (error) {
-      const err = error as { status: number; error: string }
-      expect(err.status).toBe(409)
-      expect(err.error).toBe('Training session is full')
+    const result = await createRegistration(1, 'Test Attendee', 'test@example.com')
+
+    expect(result.kind).toBe('waitlisted')
+    if (result.kind === 'waitlisted') {
+      expect(result.position).toBe(1)
     }
   })
 })

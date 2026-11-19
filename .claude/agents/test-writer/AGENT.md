@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Creates a test-writer agent that writes one failing test for   AC without peeking at the implementation
+description: Creates a test-writer agent that writes one failing test for an AC without peeking at the implementation
 tools: Read, Grep, Glob, Write
 ---
 

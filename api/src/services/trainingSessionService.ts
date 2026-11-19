@@ -1,5 +1,13 @@
 import prisma from '../lib/prisma'
 
+type RegistrationResult =
+  | { kind: 'confirmed'; registration: Awaited<ReturnType<typeof prisma.registration.create>> }
+  | {
+      kind: 'waitlisted'
+      registration: Awaited<ReturnType<typeof prisma.registration.create>>
+      position: number
+    }
+
 export async function getAllSessions() {
   return prisma.trainingSession.findMany({
     orderBy: { date: 'asc' },
@@ -12,7 +20,11 @@ export async function getSessionById(id: number) {
   })
 }
 
-export async function createRegistration(sessionId: number, name: string, email: string) {
+export async function createRegistration(
+  sessionId: number,
+  name: string,
+  email: string
+): Promise<RegistrationResult> {
   // Validate before any DB access so a rejected request never touches state.
   const trimmedName = typeof name === 'string' ? name.trim() : ''
   const trimmedEmail = typeof email === 'string' ? email.trim() : ''
@@ -31,9 +43,27 @@ export async function createRegistration(sessionId: number, name: string, email:
     throw { status: 404, error: 'Training session not found' }
   }
 
-  // The conditional update is the authorization to insert: its affected-row count
-  // is the capacity decision, so the counter can never exceed capacity.
   return prisma.$transaction(async (tx) => {
+    // When the session is at capacity, waitlist instead of confirming.
+    if (session.registered >= session.capacity) {
+      const existingWaitlisted = await tx.registration.count({
+        where: { sessionId, status: 'waitlisted' },
+      })
+
+      const registration = await tx.registration.create({
+        data: {
+          sessionId,
+          name: trimmedName,
+          email: trimmedEmail,
+          status: 'waitlisted',
+        },
+      })
+
+      return { kind: 'waitlisted', registration, position: existingWaitlisted + 1 }
+    }
+
+    // The conditional update is the authorization to insert: its affected-row count
+    // is the capacity decision, so the counter can never exceed capacity.
     const updated = await tx.trainingSession.updateMany({
       where: { id: sessionId, registered: { lt: session.capacity } },
       data: { registered: { increment: 1 } },
@@ -44,13 +74,15 @@ export async function createRegistration(sessionId: number, name: string, email:
       throw { status: 409, error: 'Training session is full' }
     }
 
-    return tx.registration.create({
+    const registration = await tx.registration.create({
       data: {
         sessionId,
         name: trimmedName,
         email: trimmedEmail,
-        status: 'registered',
+        status: 'confirmed',
       },
     })
+
+    return { kind: 'confirmed', registration }
   })
 }

@@ -95,7 +95,7 @@ describe('POST /api/training-sessions/:id/registrations', () => {
       sessionId: session.id,
       name: 'Test Attendee',
       email: 'test-attendee@example.com',
-      status: 'registered',
+      status: 'confirmed',
     })
     expect(response.body.id).toBeDefined()
     expect(response.body.createdAt).toBeDefined()
@@ -167,22 +167,6 @@ describe('POST /api/training-sessions/:id/registrations', () => {
 
     expect(response.status).toBe(404)
     expect(response.body.error).toBeDefined()
-  })
-
-  it('returns 409 when the session is full and leaves registered unchanged', async () => {
-    const session = await getFullSession()
-    const original = session.registered
-
-    const response = await request(app)
-      .post(`/api/training-sessions/${session.id}/registrations`)
-      .send({ name: 'Test Attendee', email: 'test-full@example.com' })
-
-    expect(response.status).toBe(409)
-    expect(response.body.error).toBeDefined()
-
-    const afterResponse = await request(app).get(`/api/training-sessions/${session.id}`)
-    expect(afterResponse.status).toBe(200)
-    expect(afterResponse.body.registered).toBe(original)
   })
 
   it('waitlists a registration when the session is full (202)', async () => {
